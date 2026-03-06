@@ -1,38 +1,34 @@
 # 📄 Document Q&A Assistant
 
-A local RAG (Retrieval-Augmented Generation) pipeline that lets you upload a PDF and ask questions about it — powered entirely by local models via Ollama. No paid APIs, no data leaves your machine.
+A local Retrieval-Augmented Generation (RAG) application that lets you upload a PDF and ask questions about it — all running privately on your machine using Ollama. No paid APIs, no data leaves your computer.
 
 ---
 
-## 🗂️ Project Structure
+## 🧠 Architecture Overview
 
 ```
-doc-qa-assistant/
-├── main.py                    # App entrypoint
-├── requirements.txt
-├── README.md
-├── config/
-│   ├── __init__.py
-│   └── settings.py            # All tunable config (models, chunk sizes, paths)
-├── src/
-│   ├── __init__.py
-│   ├── rag_pipeline.py        # Orchestrator: ties ingestion → retrieval → generation
-│   ├── ingestion/
-│   │   ├── __init__.py
-│   │   └── pdf_loader.py      # PDF loading + chunking
-│   ├── retrieval/
-│   │   ├── __init__.py
-│   │   └── vector_store.py    # ChromaDB build, load, search
-│   ├── generation/
-│   │   ├── __init__.py
-│   │   └── llm.py             # Ollama LLM + strict RAG prompt
-│   └── ui/
-│       ├── __init__.py
-│       └── app.py             # Streamlit frontend
-├── data/                      # (Optional) Store PDFs locally
-└── vectorstore/               # ChromaDB persisted data (auto-created)
-    └── chroma_db/
+PDF Upload
+    │
+    ▼
+PyPDFLoader → RecursiveCharacterTextSplitter
+    │
+    ▼
+MiniLM Embeddings (all-MiniLM-L6-v2, HuggingFace)
+    │
+    ▼
+ChromaDB (local vector store)
+    │
+    ▼
+Similarity Search (Top-K retrieval)
+    │
+    ▼
+Ollama LLM (gemma3:1b) + RAG Prompt
+    │
+    ▼
+Streamlit Chat UI
 ```
+
+**Chunking Strategy:** A chunk size of `500` tokens with an overlap of `100` was chosen to balance context completeness and retrieval precision. 500 tokens is large enough to capture a full paragraph or logical thought without splitting mid-sentence, while the 100-token overlap ensures that answers spanning chunk boundaries are not missed. `RecursiveCharacterTextSplitter` with `["\n\n", "\n", ".", " "]` separators preserves natural paragraph and sentence boundaries, which produces cleaner embeddings and more coherent retrieved context.
 
 ---
 
@@ -40,130 +36,128 @@ doc-qa-assistant/
 
 ### 1. Install Ollama
 
-Download from [https://ollama.com](https://ollama.com) and install for your OS.
-
-### 2. Pull Required Models
+Download and install Ollama from [https://ollama.com/download](https://ollama.com/download), then pull the required model:
 
 ```bash
-# LLM for answer generation
 ollama pull gemma3:1b
-
-# Embedding model for vector search
-ollama pull nomic-embed-text
 ```
 
-### 3. Python 3.9+
+> The embedding model (`all-MiniLM-L6-v2`, ~90 MB) is downloaded automatically from HuggingFace on first run.
 
-Verify your Python version:
+### 2. Python 3.9+
+
+Ensure you have Python 3.9 or higher installed:
+
 ```bash
 python --version
 ```
 
 ---
 
-## 🚀 Installation
+## ⚙️ Installation
+
+**1. Clone the repository:**
 
 ```bash
-# 1. Clone the repository
-git clone <your-repo-url>
-cd doc-qa-assistant
+git clone https://github.com/your-username/document-qa-assistant.git
+cd document-qa-assistant
+```
 
-# 2. Create a virtual environment
+**2. Create and activate a virtual environment (recommended):**
+
+```bash
 python -m venv venv
-source venv/bin/activate        # On Windows: venv\Scripts\activate
 
-# 3. Install dependencies
+# macOS / Linux
+source venv/bin/activate
+
+# Windows
+venv\Scripts\activate
+```
+
+**3. Install dependencies:**
+
+```bash
 pip install -r requirements.txt
 ```
 
 ---
 
-## ▶️ Usage
+## 🚀 Usage
 
-Make sure Ollama is running in the background:
+Make sure Ollama is running in the background, then start the app:
+
 ```bash
-ollama serve
+streamlit run app.py
 ```
 
-Then launch the app:
-```bash
-python main.py
-```
+The app will open in your browser at `http://localhost:8501`.
 
-Or directly via Streamlit:
-```bash
-streamlit run src/ui/app.py
-```
-
-The app will open at **http://localhost:8501**
-
-### How to use:
-1. Upload a PDF using the sidebar file uploader
-2. Click **Process Document** and wait for embedding to complete
-3. Type your question in the chat box
-4. The assistant answers strictly from the document content
+**Steps:**
+1. Upload a PDF using the sidebar.
+2. Click **Process Document** and wait for the embedding to complete.
+3. Type your question in the chat input.
+4. The assistant will answer based strictly on the document content.
 
 ---
 
-## 🧠 Architecture & Design Decisions
+## 📁 Project Structure
 
-### Chunking Strategy
-- **Chunk size: 500 characters** — Large enough to preserve meaningful context for typical PDF paragraphs, small enough to keep retrieval precise.
-- **Overlap: 100 characters** — Prevents losing important context that spans chunk boundaries (e.g., a sentence split between two chunks).
-- **Splitter: `RecursiveCharacterTextSplitter`** — Respects natural text boundaries (paragraphs → sentences → words) before hard-cutting.
-
-### Embedding Model
-`nomic-embed-text` via Ollama — lightweight, high-quality open-source embeddings that run fully locally with no API calls.
-
-### RAG Flow
 ```
-PDF Upload
-    ↓
-PyPDFLoader (load pages)
-    ↓
-RecursiveCharacterTextSplitter (chunk)
-    ↓
-OllamaEmbeddings / nomic-embed-text (embed)
-    ↓
-ChromaDB (persist vectors locally)
-    ↓
-User Question → Similarity Search (top 4 chunks)
-    ↓
-Strict RAG Prompt → gemma3:1b via Ollama
-    ↓
-Answer (document-only, no hallucination)
+rag_app/
+├── app.py              # Entry point — Streamlit page config & layout
+├── config.py           # All constants (model names, chunk sizes) & RAG prompt
+├── embeddings.py       # MiniLMEmbeddings class + cached HuggingFace loader
+├── vector_store.py     # PDF loading, chunking, ChromaDB lifecycle & retriever
+├── qa_chain.py         # Wires retriever + LLM into a RetrievalQA chain
+├── ui/
+│   ├── sidebar.py      # Sidebar: config info, file uploader, clear-chat button
+│   └── chat.py         # Chat history rendering, input handling, source expander
+└── requirements.txt
 ```
-
-### Strict No-Hallucination Policy
-The LLM prompt explicitly instructs the model:
-- Answer ONLY from provided context
-- If answer not found → return: *"I cannot find the answer to that question in the provided document."*
-- Temperature set to `0.1` for deterministic, factual responses
 
 ---
 
-## 🛠️ Configuration
-
-All settings are in `config/settings.py`:
-
-| Setting | Default | Description |
-|---|---|---|
-| `LLM_MODEL` | `gemma3:1b` | Ollama model for generation |
-| `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model for embeddings |
-| `CHUNK_SIZE` | `500` | Characters per chunk |
-| `CHUNK_OVERLAP` | `100` | Overlap between chunks |
-| `TOP_K_RESULTS` | `4` | Chunks retrieved per query |
-
----
-
-## 📦 Tech Stack
+## 🛠️ Tech Stack
 
 | Component | Technology |
 |---|---|
 | Language | Python 3.9+ |
-| LLM Inference | Ollama (gemma3:1b) |
-| Embeddings | Ollama (nomic-embed-text) |
+| LLM Inference | [Ollama](https://ollama.com) (`gemma3:1b`) |
 | Orchestration | LangChain |
 | Vector Database | ChromaDB (local) |
-| Frontend | Streamlit |
-| PDF Parsing | PyPDF |
+| Embedding Model | `sentence-transformers/all-MiniLM-L6-v2` (HuggingFace) |
+| UI | Streamlit |
+
+---
+
+## 💬 Bot Behaviour
+
+- **Answer found in document** → Responds directly and concisely based on the context.
+- **Answer not in document** → Responds with: *"I couldn't find relevant information about this in the document. Could you try rephrasing your question?"*
+- The LLM is strictly prompted to never hallucinate or use outside knowledge.
+
+---
+
+## 📦 Dependencies
+
+See [`requirements.txt`](./requirements.txt) for the full list. Key packages:
+
+```
+streamlit
+langchain
+langchain-community
+langchain-text-splitters
+langchain-core
+chromadb
+pypdf
+transformers
+torch
+ollama
+```
+
+---
+
+## 🔒 Privacy
+
+All processing happens locally on your machine. No data is sent to any external API or cloud service.
